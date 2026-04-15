@@ -1,62 +1,112 @@
-# NC DOT PDF ETL — Docker Compose + Airflow + PostgreSQL
+# BIDs PDF ETL: Airflow + Docker + PostgreSQL
 
-End-to-end pipeline: PDF files → structured rows in PostgreSQL,
-orchestrated by Apache Airflow.
+End-to-end data pipeline that extracts structured data from PDF documents and loads it into PostgreSQL, orchestrated with Apache Airflow.
 
 ---
 
-## Project structure
+## Overview
+
+This project processes unstructured PDF files (e.g., award letters, bid tabs) and converts them into structured datasets ready for analysis.
+
+#### Flow
+```
+PDF files → Extractors → Transformer → PostgreSQL
+                    ↓
+                 Airflow (orchestration)
+```
+
+#### Architecture
+
+```
+┌──────────────────────────────────────────────┐
+│                 Airflow DAG                  │
+│          (Orchestration Layer)               │
+│                                              │
+│   ┌──────────────┐                           │
+│   │  Extractors  │                           │
+│   │ (PDF Parsing)│                           │
+│   └──────┬───────┘                           │
+│          │                                   │
+│          ▼                                   │
+│   ┌──────────────┐                           │
+│   │ Transformer  │                           │
+│   │ (Normalize)  │                           │
+│   └──────┬───────┘                           │
+│          │                                   │
+│          ▼                                   │
+│   ┌──────────────┐                           │
+│   │   Loader     │                           │
+│   │ PostgreSQL   │                           │
+│   └──────────────┘                           │
+│                                              │
+└──────────────────────────────────────────────┘
+                  ▲
+                  │
+        ┌──────────────────┐
+        │    PDF Files     │
+        │  (Batch Input)   │
+        └──────────────────┘
+```
+
+---
+
+## Project Structure
 
 ```
 etl/
 ├── dags/
-│   └── ncdot_pdf_etl.py          ← Airflow DAG
-├── extractors/                    ← PDF extractors (your existing code)
-│   ├── base_extractor.py
+│   └── bids_pdf_etl.py
+├── extractors/
 │   ├── award_letter_extractor.py
+│   ├── base_extractor.py
 │   ├── bid_tabs_extractor.py
+|   ├── bid_tabs_idiq_extractor.py
+|   ├── bids_as_read_extractor.py 
 │   ├── invitation_to_bid_extractor.py
 │   └── item_c_report_extractor.py
-├── transformers/
-│   └── transform.py               ← PDFDataTransformer
+├── inbox/
 ├── loaders/
-│   └── bid_line_items_loader.py   ← Inserts DataFrame into Postgres
+│   └── bid_line_items_loader.py
+├── raw_json/
+├── transformers/
+│   └── transform.py
 ├── db/
-│   ├── postgresql_client.py       ← PostgreSQL client (env-var config)
-│   └── init.sql                   ← Creates airflow + etl databases and schema
-├── Dockerfile                     ← Extends official Airflow image
+│   ├── postgresql_client.py
+│   └── init.sql
+├── Dockerfile
 ├── docker-compose.yml
 ├── requirements.txt
-└── .env                           ← Secrets (never commit this)
+└── .env
 ```
 
 ---
 
-## Quick start
+## Quick Start
 
 ### 1. Generate secrets
 
 ```bash
-# Fernet key (required by Airflow to encrypt connection passwords)
 python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
-
-# Paste the output into .env:
-#   AIRFLOW_FERNET_KEY=<output>
-#   AIRFLOW_SECRET_KEY=<any random string>
 ```
 
-### 2. Build and start
+Add to `.env`:
+
+```
+AIRFLOW_FERNET_KEY=<generated_key>
+AIRFLOW_SECRET_KEY=<random_string>
+```
+
+---
+
+### 2. Build and start services
 
 ```bash
 docker compose up --build -d
 ```
 
-First boot takes ~2 minutes. The `airflow-init` container runs
-`airflow db migrate` and creates the admin user, then exits.
+---
 
-### 3. Add the filesystem connection in Airflow
-
-The `FileSensor` needs a connection named `fs_default` that points to `/`:
+### 3. Configure Airflow connection
 
 ```bash
 docker compose exec airflow-scheduler \
@@ -65,72 +115,75 @@ docker compose exec airflow-scheduler \
     --conn-extra '{"path": "/"}'
 ```
 
-### 4. Open the Airflow UI
+---
 
-http://localhost:8080  
-Login: `admin` / `admin`
+### 4. Access Airflow UI
 
-Enable the `ncdot_pdf_etl` DAG from the UI.
+http://localhost:8080
+
+**Login**:
+user: `admin`
+pass: `admin`
 
 ---
 
-## Dropping PDFs to process
+## Input Data (PDF Ingestion)
 
-The pipeline triggers automatically every 5 minutes. It scans the
-`inbox/` volume for new **batch subdirectories**.
+The pipeline scans the `inbox/` directory every 5 minutes for new batches.
 
-Each batch directory is a **flat folder** — all contracts mixed together.
-Files are grouped into contracts automatically by detecting the contract ID
-and document type from the filename using keyword matching. No strict naming
-convention is required.
+### Batch structure
 
-**Contract ID detection** — the first ID-like token found anywhere in the filename:
+Each batch is a flat folder:
 
-| Pattern | Example |
-|---|---|
-| All digits | `12107176_ Bid Tabs.pdf` |
-| Letters + digits | `DA00592 Award Letter.pdf` |
-| Digits + letters | `L231206A_ Item C Report.pdf` |
-
-**Document type detection** — by keyword scan (case-insensitive):
-
-| Keyword in filename | Mapped type |
-|---|---|
-| `Award Letter` | award_letter |
-| `Bid Tab`, `AWP Bid Tabs` | bid_tabs |
-| `Invitation to Bid` | invitation_to_bid |
-| `Item C` | item_c_report |
-
-Files with no detectable contract ID (e.g. `Item C Report.pdf`) are automatically assigned to **all contracts** in
-the same batch directory.
-
-```bash
-# Example: drop a batch with two contracts
-mkdir -p inbox/2024-01-15_batch
-cp /path/to/*.pdf inbox/2024-01-15_batch/
+```
+inbox/
+└── 2024-01-15_batch/
+    ├── DA00592 Award Letter.pdf
+    ├── DA00592 Bid Tabs.pdf
+    ├── L231206A Item C Report.pdf
+    └── Invitation to Bid.pdf
 ```
 
-The pipeline picks it up within 5 minutes. After all contracts in the
-batch are loaded, a `.processed` sentinel is written so the batch is
-never reprocessed.
+In order to trigering data procesing place PDF batches inside:
+
+```
+inbox/
+```
+
+Example:
+
+```
+inbox/2024-01-15_batch/
+```
 
 ---
 
-## Querying results
+## Querying Data
 
 ```bash
-# Connect to the ETL database (host port 5433 to avoid conflicts with a local Postgres)
 docker compose exec postgres psql -U etl -d etl
+```
+Example:
+```sql
+-- Count loaded rows
+SELECT proposals_contract_id, COUNT(*)
+FROM ncdot.bid_line_items
+GROUP BY 1;
+```
 
-# Count loaded rows
-SELECT proposals_contract_id, COUNT(*) FROM ncdot.bid_line_items GROUP BY 1;
+## Stopping the Environment
+```bash
+docker compose down # stop containers
+docker compose down -v # stop + delete all data
 ```
 
 ---
 
-## Stopping
+## Features
 
-```bash
-docker compose down          # stop containers, keep volumes
-docker compose down -v       # stop containers AND delete all data
-```
+- Modular extractors
+- Automatic contract detection
+- Airflow orchestration
+- Dockerized environment
+- PostgreSQL storage
+- Idempotent processing
