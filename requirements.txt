@@ -1,0 +1,7 @@
+pdfplumber==0.11.4
+psycopg[binary]==3.2.3
+pandas==2.2.3
+anthropic==0.49.0
+pypdfium2==4.30.0
+Pillow==10.4.0
+httpx==0.27.2
