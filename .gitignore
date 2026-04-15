@@ -1,0 +1,106 @@
+# =========================
+# Python
+# =========================
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Pip / Poetry / Pipenv
+pip-log.txt
+pip-delete-this-directory.txt
+poetry.lock
+Pipfile.lock
+
+# Unit test / coverage
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+pytest_cache/
+nosetests.xml
+coverage.xml
+*.cover
+
+# Logs
+*.log
+
+# =========================
+# Airflow
+# =========================
+airflow.db
+airflow.cfg
+webserver_config.py
+
+# Airflow logs & temp
+logs/
+*.pid
+scheduler.pid
+
+# DAGs compiled / temp
+untracked_dags/
+
+# =========================
+# Jupyter / notebooks
+# =========================
+.ipynb_checkpoints
+
+# =========================
+# Data files (custom)
+# =========================
+*.csv
+*.tsv
+*.json
+*.pdf
+*.processed
+
+# Optional: keep example data
+!data/example*.csv
+!data/example*.json
+
+# =========================
+# Environment / secrets
+# =========================
+.env
+*.env
+*.key
+*.pem
+
+# =========================
+# IDEs / Editors
+# =========================
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# =========================
+# OS files
+# =========================
+.DS_Store
+Thumbs.db
