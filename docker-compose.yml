@@ -1,0 +1,133 @@
+version: "3.9"
+
+# Shared Airflow environment — consumed by all airflow-* services
+x-airflow-common: &airflow-common
+  build: .
+  environment: &airflow-env
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW_FERNET_KEY}
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/dags
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+    AIRFLOW__WEBSERVER__SECRET_KEY: ${AIRFLOW_SECRET_KEY}
+
+    # ETL target database — read by our PostgreSQLClient via os.environ
+    POSTGRESQL_HOST: postgres
+    POSTGRESQL_PORT: "5432"
+    POSTGRESQL_DATABASE: etl
+    POSTGRESQL_USER: etl
+    POSTGRESQL_PASSWORD: etl
+
+    # Inbox root — Airflow FileSensor watches subdirs here
+    ETL_INBOX_DIR: /opt/airflow/inbox
+    ETL_RAW_JSON_DIR: /opt/airflow/raw_json
+
+    # Anthropic API key — required for Bids As Read vision extraction
+    ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+
+  volumes:
+    - ./dags:/opt/airflow/dags
+    - ./extractors:/opt/airflow/extractors
+    - ./transformers:/opt/airflow/transformers
+    - ./loaders:/opt/airflow/loaders
+    - ./db:/opt/airflow/db
+    - ./config:/opt/airflow/config
+    - ./plugins:/opt/airflow/plugins
+    - airflow_logs:/opt/airflow/logs
+    - ./inbox:/opt/airflow/inbox
+    - ./raw_json:/opt/airflow/raw_json
+  depends_on:
+    postgres:
+      condition: service_healthy
+  networks:
+    - etl_net
+
+# Services
+services:
+
+  # Postgres: serves BOTH the Airflow metadata DB and the ETL target DB
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_PASSWORD: postgres          # superuser password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - etl_net
+
+  # Fix permissions on bind-mounted dirs so airflow user (50000) can write
+  fix-permissions:
+    image: alpine:3
+    user: root
+    volumes:
+      - ./inbox:/opt/airflow/inbox
+      - ./raw_json:/opt/airflow/raw_json
+    command: >
+      sh -c "chown -R 50000:0 /opt/airflow/inbox /opt/airflow/raw_json &&
+             chmod -R 777 /opt/airflow/inbox /opt/airflow/raw_json &&
+             chmod +s /opt/airflow/inbox /opt/airflow/raw_json"
+    restart: "no"
+    networks:
+      - etl_net
+
+  # Airflow init: migrate DB + create admin user (runs once)
+  airflow-init:
+    <<: *airflow-common
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        airflow db migrate
+        airflow users create \
+          --username admin \
+          --password admin \
+          --firstname Admin \
+          --lastname User \
+          --role Admin \
+          --email admin@example.com || true
+    restart: "no"
+    depends_on:
+      fix-permissions:
+        condition: service_completed_successfully
+
+  # Airflow webserver
+  airflow-webserver:
+    <<: *airflow-common
+    command: webserver
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    restart: unless-stopped
+    depends_on:
+      fix-permissions:
+        condition: service_completed_successfully
+
+  # Airflow scheduler
+  airflow-scheduler:
+    <<: *airflow-common
+    command: scheduler
+    restart: unless-stopped
+    depends_on:
+      fix-permissions:
+        condition: service_completed_successfully
+
+# Volumes & network
+volumes:
+  postgres_data:
+  airflow_logs:
+
+networks:
+  etl_net:
+    driver: bridge
