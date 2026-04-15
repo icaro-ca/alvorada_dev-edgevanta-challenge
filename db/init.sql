@@ -17,9 +17,9 @@ CREATE DATABASE etl OWNER etl;
 -- Switch to ETL database to create schema and table
 \connect etl etl
 
-CREATE SCHEMA IF NOT EXISTS ncdot;
+CREATE SCHEMA IF NOT EXISTS bids;
 
-CREATE TABLE IF NOT EXISTS ncdot.bid_line_items (
+CREATE TABLE IF NOT EXISTS bids.bid_line_items (
     -- identity
     id                            BIGSERIAL PRIMARY KEY,
     loaded_at                     TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -59,4 +59,4 @@ CREATE TABLE IF NOT EXISTS ncdot.bid_line_items (
 
 -- Index for the most common lookup pattern
 CREATE INDEX IF NOT EXISTS idx_bid_line_items_contract
-    ON ncdot.bid_line_items (proposals_contract_id);
+    ON bids.bid_line_items (proposals_contract_id);

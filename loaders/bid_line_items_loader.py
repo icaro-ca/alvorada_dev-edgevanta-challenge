@@ -7,7 +7,7 @@ from db.postgresql_client import PostgreSQLClient
 
 logger = logging.getLogger(__name__)
 
-_SCHEMA = "ncdot"
+_SCHEMA = "bids"
 _TABLE  = "bid_line_items"
 
 
@@ -43,7 +43,7 @@ _COLUMNS = [
 
 class BidLineItemsLoader:
     """
-    Inserts rows from a transformed DataFrame into ncdot.bid_line_items.
+    Inserts rows from a transformed DataFrame into bids.bid_line_items.
 
     Parameters
     ----------
