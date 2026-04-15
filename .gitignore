@@ -73,7 +73,6 @@ untracked_dags/
 # =========================
 # Data files (custom)
 # =========================
-*.csv
 *.tsv
 *.json
 *.pdf
