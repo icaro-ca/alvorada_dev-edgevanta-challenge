@@ -6,16 +6,46 @@ End-to-end data pipeline that extracts structured data from PDF documents and lo
 
 ## Overview
 
-This project processes unstructured PDF files (e.g., award letters, bid tabs) and converts them into structured datasets ready for analysis.
+This project solves the challenge of transforming unstructured PDF documents into structured, queryable data.
 
-#### Flow
+It processes multiple document types (Award Letters, Bid Tabs, etc.), extracts relevant fields, normalizes them, and loads them into a relational database.
+
+
+### 0. Output Data
+
+As part of this proof of concept, the processed data is made available as a CSV file located in the root directory of the project. 
+
+### 1. Flow
 ```
-PDF files → Extractors → Transformer → PostgreSQL
-                    ↓
-                 Airflow (orchestration)
+PDF Batch (inbox/)
+        ↓
+Airflow DAG triggered (every 5 min)
+        ↓
+Extraction (per file type)
+        ↓
+Raw JSON (intermediate layer)
+        ↓
+Transformation (normalize schema)
+        ↓
+Load into PostgreSQL
 ```
 
-#### Architecture
+#### Batch Processing
+- Files are grouped by batch folder
+- Each batch is processed atomically
+- A .processed marker prevents reprocessing (idempotency)
+
+#### Handling New / Updated Data
+- New files → automatically detected via folder polling
+- Already processed batches → skipped using marker files
+
+#### Smart Detection
+- Contract ID extracted from filename patterns
+- Document type inferred via keywords
+
+### 2. Architecture
+
+The solution is built around Apache Airflow as the orchestration layer, which manages all ETL steps (extraction, transformation, and loading).
 
 ```
 ┌──────────────────────────────────────────────┐
@@ -47,10 +77,18 @@ PDF files → Extractors → Transformer → PostgreSQL
         │  (Batch Input)   │
         └──────────────────┘
 ```
+### 3. Design Decisions
+- **`Airflow`** → central orchestration, scheduling, and retry management.
+- **`Modular extractors`** → isolate parsing logic per document type.
+- **`Transformation layer`** → ensures consistent schema across heterogeneous PDFs.
+- **`PostgreSQL`** → structured storage for analytical queries.
+- **`Docker`** → reproducible environment and easy 
+  
+This design ensures extensibility, maintainability, and separation of concerns.
 
 ---
 
-## Project Structure
+### 4. Project Structure
 
 ```
 etl/
